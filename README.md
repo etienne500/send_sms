@@ -31,6 +31,64 @@ Projet source d'un gestionnaire local de contacts, groupes, modèles et campagne
 
 L’écran **Passerelle** permet d’ajouter un host (URL, chemin Socket.IO, chambre et jeton), d’afficher son état et d’activer ou désactiver la connexion. L’activation demande les autorisations SMS et téléphone. Les jetons sont chiffrés avec une clé conservée dans Android Keystore et les données chiffrées sont stockées dans les préférences privées de l’application, séparément de la base SQLite.
 
+### Remplir le formulaire « Ajouter un host »
+
+Avant de remplir le formulaire, configurez un serveur Socket.IO accessible depuis le téléphone. Le développeur du backend doit vous fournir l’adresse HTTPS et créer un jeton secret pour cette passerelle. Les exemples ci-dessous sont des placeholders : remplacez-les par les valeurs de votre serveur; ne copiez pas le jeton d’exemple.
+
+| Champ dans l’application | Valeur à saisir | Exemple / placeholder |
+|---|---|---|
+| **Nom du host** | Un nom pour reconnaître cette connexion sur le téléphone. Ce nom n’est pas envoyé au serveur. | `Serveur de production` |
+| **URL du serveur (HTTPS)** | Le domaine ou l’adresse publique du serveur, avec `https://`, sans chemin Socket.IO, paramètres ni identifiants. | `https://sms.votredomaine.com` |
+| **Chemin Socket.IO** | Le chemin configuré par le développeur dans Socket.IO côté serveur. Si le serveur utilise sa configuration standard, gardez `/socket.io`. | `/socket.io` |
+| **Chambre** | La chambre dédiée à cet appareil. Vous pouvez laisser le champ vide : l’application la génère automatiquement sous la forme `sms-gateway:<deviceId>`. Si vous renseignez une valeur, le serveur doit utiliser et autoriser exactement la même chambre. | `sms-gateway:0123456789abcdef0123456789abcdef` |
+| **Jeton d’authentification** | Le jeton secret créé par votre backend pour cette passerelle. Il ne s’agit ni d’un mot de passe arbitraire, ni d’une clé Socket.IO publique. | `COLLER_ICI_LE_JETON_SECRET_FOURNI_PAR_LE_BACKEND` |
+
+**Exemple de configuration** (valeurs fictives) :
+
+```text
+Nom du host            : Serveur de production
+URL du serveur         : https://sms.votredomaine.com
+Chemin Socket.IO       : /socket.io
+Chambre                : (laisser vide pour utiliser la chambre générée)
+Jeton d’authentification: COLLER_ICI_LE_JETON_SECRET_FOURNI_PAR_LE_BACKEND
+```
+
+Appuyez sur **Enregistrer**, puis activez le host à l’aide de son interrupteur et accordez les permissions Android demandées. « Enregistrer » ajoute la configuration, mais ne démarre pas la passerelle à lui seul. Pour un serveur de test sur le réseau local uniquement, l’application accepte aussi `http://` avec une adresse locale (par exemple `http://192.168.1.20:3000`); en production, utilisez toujours HTTPS. L’adresse dans le champ URL doit être uniquement l’origine : mettez un éventuel chemin personnalisé dans **Chemin Socket.IO**, pas à la fin de l’URL. Le backend doit être configuré avec le même chemin.
+
+Si la connexion échoue, vérifiez l’URL et le chemin auprès du développeur backend, que le serveur est joignable depuis le téléphone, que le jeton est valide et associé à cet appareil, et que la chambre autorisée correspond. Le jeton est masqué dans le formulaire et conservé dans le stockage sécurisé Android. Lors de la modification d’un host, le champ du jeton est facultatif : laissez-le vide pour conserver le jeton actuel, ou renseignez un nouveau jeton pour le remplacer.
+
+#### À quoi sert le jeton et comment l’obtenir ?
+
+Le jeton est un **secret d’authentification** (comme un badge numérique) : à chaque connexion, l’application le présente à votre serveur Socket.IO. Le serveur vérifie ce secret avant d’accepter le téléphone et ses demandes. Il empêche un client inconnu de se faire passer pour votre passerelle. Ce n’est pas le jeton d’un fournisseur SMS, et il ne sert pas à payer les SMS.
+
+Vous ne pouvez pas le déduire de l’URL ni le créer en écrivant le placeholder dans le formulaire. Il doit être généré et enregistré par le développeur qui administre votre backend. Comme l’application crée son `deviceId` lors de l’enregistrement du host, le parcours est le suivant :
+
+1. Le développeur backend génère un jeton aléatoire unique et crée dans sa base une autorisation de passerelle pour ce jeton. Il vous transmet le jeton par un canal privé.
+2. Vous collez le vrai jeton dans le formulaire **Ajouter un host** et appuyez sur **Enregistrer**. L’application crée un `deviceId` aléatoire, visible sur la fiche du host.
+3. Lors de la première connexion, le backend associe de manière atomique ce jeton non encore associé au `deviceId` présenté par l’application. Il mémorise ensuite cette association et refuse toute tentative d’utiliser le même jeton avec un autre appareil. Le serveur doit aussi vérifier que la chambre demandée est exactement `sms-gateway:<deviceId>` avant d’y inscrire le téléphone.
+
+Exemple de génération à exécuter **sur le backend** avec Node.js (pas dans le navigateur) :
+
+```js
+import { createHash, randomBytes } from "node:crypto";
+
+const token = randomBytes(32).toString("base64url");
+const tokenHash = createHash("sha256").update(token).digest("hex");
+
+// À faire dans votre base : créer une autorisation activée avec
+// tokenHash et deviceId = null (pas encore associé à un téléphone).
+await saveGatewayCredential({ tokenHash, deviceId: null, enabled: true });
+
+// Afficher une seule fois et transmettre le token par un canal privé.
+console.log("Jeton à coller dans l’application :", token);
+```
+
+Le middleware Socket.IO doit calculer le SHA-256 du jeton reçu, rechercher l’autorisation correspondante, puis lier le premier `deviceId` à cette autorisation avec une mise à jour atomique. Aux connexions suivantes, il n’accepte que ce même `deviceId`. Adaptez donc `findGatewayByToken` dans l’exemple serveur ci-dessous à votre stockage de jetons et à cette règle d’association. Ne stockez idéalement que le hash du jeton dans la base; le jeton en clair n’est nécessaire que pour le communiquer une fois à l’utilisateur.
+
+Si le développeur ne peut pas mettre en place l’association automatique à la première connexion, il doit adapter le parcours d’inscription côté backend/mobile pour enregistrer d’abord le `deviceId`, puis créer un jeton lié à cet identifiant. Ne désactivez pas la vérification d’identité pour contourner ce problème. En cas de perte ou de fuite, révoquez le jeton dans le backend, générez-en un nouveau, puis remplacez-le dans **Modifier le host**.
+
+Gardez le jeton confidentiel : ne le publiez pas dans le README, un dépôt Git, une capture d’écran ou un message public. Il est transmis uniquement au backend configuré et conservé dans le stockage sécurisé Android. Si vous n’administrez pas le serveur, demandez à son développeur ou à son administrateur de vous en générer un.
+
 ### Contrat Socket.IO exact
 
 - Authentification Socket.IO via `handshake.auth.token` et `handshake.auth.deviceId`.
