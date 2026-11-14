@@ -969,6 +969,7 @@ class _ContactNumberGeneratorDialogState
     extends State<ContactNumberGeneratorDialog> {
   final quantity = TextEditingController(text: '10');
   List<String> generated = [];
+  String operatorChoice = 'Les deux';
 
   @override
   void dispose() {
@@ -986,7 +987,7 @@ class _ContactNumberGeneratorDialogState
       return;
     }
     setState(() {
-      generated = generateSyntheticTestPhones(count, Random.secure());
+      generated = generatePhones(operatorChoice, count, Random.secure());
     });
   }
 
@@ -1009,7 +1010,21 @@ class _ContactNumberGeneratorDialogState
           width: 480,
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             const Text(
-                'Ces valeurs aléatoires utilisent le bloc invalide 000 xxx xxx. Elles sont fictives, ne correspondent à aucun opérateur et ne peuvent pas être importées ni utilisées pour envoyer un SMS.'),
+                'Le préfixe correspond au profil opérateur choisi. Les six chiffres du suffixe sont générés aléatoirement.'),
+            const SizedBox(height: 12),
+            const Text('Profil opérateur simulé'),
+            const SizedBox(height: 6),
+            SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(value: 'MTN', label: Text('MTN')),
+                ButtonSegment(value: 'ORANGE', label: Text('Orange')),
+                ButtonSegment(value: 'Les deux', label: Text('Les deux')),
+              ],
+              selected: {operatorChoice},
+              onSelectionChanged: (selection) {
+                setState(() => operatorChoice = selection.first);
+              },
+            ),
             TextField(
               controller: quantity,
               keyboardType: TextInputType.number,
@@ -1023,8 +1038,7 @@ class _ContactNumberGeneratorDialogState
               label: const Text('Générer'),
             ),
             if (generated.isNotEmpty) ...[
-              Text(
-                  '${generated.length} numéro(s) fictif(s) • séparés par des virgules'),
+              Text('${generated.length} numéro(s) fictif(s) • profil $operatorChoice • séparés par des virgules'),
               const SizedBox(height: 6),
               SizedBox(
                 height: 140,

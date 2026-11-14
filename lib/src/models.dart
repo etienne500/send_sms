@@ -117,6 +117,30 @@ String? normalizeCameroonPhoneOrNull(String raw) {
   return phone.isEmpty ? null : phone;
 }
 
+String operatorFor(String raw) {
+  final phone = normalizeCameroonPhone(raw);
+  if (phone.isEmpty) return 'INCONNU';
+
+  const mtnPrefixes = {
+    '650', '651', '652', '653', '654',
+    '670', '671', '672', '673', '674',
+    '675', '676', '677', '678', '679',
+    '680', '681', '682', '683', '684',
+    '687', '688', '689',
+  };
+  const orangePrefixes = {
+    '655', '656', '657', '658', '659',
+    '685', '686',
+    '690', '691', '692', '693', '694',
+    '695', '696', '697', '698', '699',
+  };
+
+  final prefix = phone.substring(0, 3);
+  if (mtnPrefixes.contains(prefix)) return 'MTN';
+  if (orangePrefixes.contains(prefix)) return 'ORANGE';
+  return 'INCONNU';
+}
+
 List<ContactNumberEntry> parsePastedCameroonNumbers(String input) {
   final entries = <ContactNumberEntry>[];
   final seen = <String>{};
@@ -128,34 +152,59 @@ List<ContactNumberEntry> parsePastedCameroonNumbers(String input) {
   return entries;
 }
 
-List<String> generateSyntheticTestPhones(int count, Random random) {
+
+
+List<String> generatePhones(
+  String? operateur,
+  int count,
+  Random random,
+) {
   if (count < 0 || count > 1000) {
     throw RangeError.range(count, 0, 1000, 'count');
   }
-  final suffixes = <int>{};
-  while (suffixes.length < count) {
-    suffixes.add(random.nextInt(1000000));
+
+  const mtnPrefixes = [
+    '670', '671', '672', '673', '674',
+    '675', '676', '677', '678', '679',
+    '650', '651', '652', '653', '654',
+    '680', '681', '682', '683', '684',
+    '687', '688', '689',
+  ];
+
+  const orangePrefixes = [
+    '690', '691', '692', '693', '694',
+    '695', '696', '697', '698', '699',
+    '655', '656', '657', '658', '659',
+    '685', '686',
+  ];
+
+  final List<String> prefixes;
+
+  if (operateur?.toUpperCase() == 'MTN') {
+    prefixes = mtnPrefixes;
+  } else if (operateur?.toUpperCase() == 'ORANGE') {
+    prefixes = orangePrefixes;
+  } else {
+    prefixes = [...mtnPrefixes, ...orangePrefixes];
   }
-  return suffixes.map((suffix) {
-    final nationalNumber = '000${suffix.toString().padLeft(6, '0')}';
-    return '+237 ${nationalNumber.substring(0, 3)} '
-        '${nationalNumber.substring(3, 6)} ${nationalNumber.substring(6)}';
-  }).toList();
+
+  final phones = <String>{};
+
+  while (phones.length < count) {
+    final prefix = prefixes[random.nextInt(prefixes.length)];
+
+    final suffix = List.generate(
+      6,
+      (_) => random.nextInt(10),
+    ).join();
+
+    phones.add('+237 $prefix $suffix');
+  }
+
+  return phones.toList();
 }
 
-String operatorFor(String phone) {
-  final normalized = normalizeCameroonPhone(phone);
-  if (normalized.startsWith('67') ||
-      RegExp(r'^(650|651|652|653|654|680|681|682|683|684|687|688|689)')
-          .hasMatch(normalized)) {
-    return 'MTN';
-  }
-  if (normalized.startsWith('69') ||
-      RegExp(r'^(655|656|657|658|659|685|686)').hasMatch(normalized)) {
-    return 'ORANGE';
-  }
-  return 'ORANGE';
-}
+
 
 String normalizeContactSearch(String value) {
   var normalized = value.toLowerCase();
